@@ -1,43 +1,678 @@
-"""UI layout module for Streamlit.
+"""Streamlit screens and session-only workflow state."""
 
-This keeps UI code separate from the API client and the main app control flow.
-It uses Streamlit primitives to render a simple, easy-to-adapt layout.
-"""
+from datetime import datetime, time, timedelta, timezone
 
 import streamlit as st
-from typing import Dict, Any
+
+import animation_service
+import buffer_client
+import cloudinary_service
+import google_video_service
+import media_service
+import music_service
+import openai_service
+import pixel_art
+import viggle_service
 
 
-def render_home(data: Dict[str, Any]):
-    """Render the main page given a simple data dictionary.
+def render_app() -> None:
+    st.title("Pixel Post Studio")
+    st.caption("Make pixel art, bring it to life, and prepare it for Buffer.")
 
-    Expected shape (example):
-      {
-        "title": str,
-        "description": str,
-        "items": [{"id":..., "name":..., "value":...}, ...]
-      }
+    demo_mode = st.sidebar.toggle(
+        "Demo mode",
+        value=False,
+        key="demo_mode_toggle",
+        help="Explore the complete creative workflow with no API keys or external calls.",
+    )
+    st.sidebar.caption(
+        "Live mode is on. API keys stay in this session and are not saved to disk."
+    )
+    if demo_mode:
+        st.sidebar.success("Demo mode — no API keys required")
+        api_keys = {}
+    else:
+        st.sidebar.subheader("API keys")
+        st.sidebar.caption(
+            "Add only the providers you want to use. Image generation, animation, "
+            "music generation, and publishing may incur charges."
+        )
+        st.sidebar.markdown(
+            "[OpenAI](https://platform.openai.com/api-keys) · "
+            "[Google AI Studio](https://aistudio.google.com/api-keys) · "
+            "[fal.ai](https://fal.ai/dashboard/keys) · "
+            "[Viggle](https://portal.viggle.ai/keys) · "
+            "[Cloudinary](https://console.cloudinary.com/) · "
+            "[Hugging Face](https://huggingface.co/settings/tokens) · "
+            "[Buffer](https://publish.buffer.com/settings/api)"
+        )
+        api_keys = {
+            "openai": st.sidebar.text_input(
+                "OpenAI API key",
+                type="password",
+                key="openai_api_key",
+                help="Used for pixel-art image generation and caption writing.",
+            ),
+            "google": st.sidebar.text_input(
+                "Google Gemini API key",
+                type="password",
+                key="google_api_key",
+                help="Used for Gemini Omni Flash or Veo 3.1 image-to-video animation.",
+            ),
+            "fal": st.sidebar.text_input(
+                "fal.ai API key",
+                type="password",
+                key="fal_api_key",
+                help="Animation calls use paid fal.ai model inference.",
+            ),
+            "viggle": st.sidebar.text_input(
+                "Viggle API key",
+                type="password",
+                key="viggle_api_key",
+                help="Used for image-referenced Viggle video generation.",
+            ),
+            "cloudinary_cloud_name": st.sidebar.text_input(
+                "Cloudinary cloud name",
+                key="cloudinary_cloud_name",
+                help="Found in your Cloudinary console; used to host generated media for Buffer.",
+            ),
+            "cloudinary_api_key": st.sidebar.text_input(
+                "Cloudinary API key",
+                type="password",
+                key="cloudinary_api_key",
+            ),
+            "cloudinary_api_secret": st.sidebar.text_input(
+                "Cloudinary API secret",
+                type="password",
+                key="cloudinary_api_secret",
+            ),
+            "huggingface": st.sidebar.text_input(
+                "Hugging Face token",
+                type="password",
+                key="huggingface_api_key",
+                help="Music generation may require model access on Hugging Face.",
+            ),
+            "buffer": st.sidebar.text_input(
+                "Buffer API key",
+                type="password",
+                key="buffer_api_key",
+                help="Used to read connected accounts and queue or schedule posts.",
+            ),
+        }
+        if api_keys["openai"] and st.sidebar.button("Test OpenAI key"):
+            try:
+                openai_service.validate_api_key(api_keys["openai"])
+                st.sidebar.success("OpenAI key is valid.")
+            except Exception as exc:
+                _show_error("OpenAI key check failed", exc, api_keys)
+        if api_keys["huggingface"] and st.sidebar.button("Test Hugging Face token"):
+            try:
+                music_service.validate_api_key(api_keys["huggingface"])
+                st.sidebar.success("Hugging Face token is valid.")
+            except Exception as exc:
+                _show_error("Hugging Face token check failed", exc, api_keys)
+        if api_keys["google"] and st.sidebar.button("Test Google Gemini key"):
+            try:
+                google_video_service.validate_api_key(api_keys["google"])
+                st.sidebar.success("Google Gemini key is valid.")
+            except Exception as exc:
+                _show_error("Google Gemini key check failed", exc, api_keys)
+        if api_keys["viggle"] and st.sidebar.button("Check Viggle credits"):
+            try:
+                balance = viggle_service.get_credit_balance(api_keys["viggle"])
+                st.sidebar.success(f"Viggle key is valid. Credit balance: {balance:g}")
+            except Exception as exc:
+                _show_error("Viggle key check failed", exc, api_keys)
+        if api_keys["fal"]:
+            st.sidebar.caption(
+                "fal.ai credentials are checked when you create an animation; "
+                "there is no free validation call."
+            )
 
-    Adapt the rendering to your needs or replace entirely with custom
-    components or a separate front-end.
-    """
-    title = data.get("title", "Micro-app")
-    description = data.get("description", "")
-    items = data.get("items", [])
+    st.session_state.setdefault("pixel_art_image", None)
+    st.session_state.setdefault("animation_bytes", None)
+    st.session_state.setdefault("animation_type", None)
+    st.session_state.setdefault("music_bytes", None)
+    st.session_state.setdefault("music_extension", None)
+    st.session_state.setdefault("caption_text", "")
+    st.session_state.setdefault("buffer_organizations", [])
+    st.session_state.setdefault("buffer_channels", [])
 
-    st.subheader(title)
-    if description:
-        st.write(description)
+    create_tab, animate_tab, soundtrack_tab, publish_tab = st.tabs(
+        ["1 · Create pixel art", "2 · Animate", "3 · Soundtrack", "4 · Caption & publish"]
+    )
 
-    if not items:
-        st.info("No items to display. Implement api_client.fetch_data() to return real data.")
+    with create_tab:
+        prompt = st.text_input(
+            "Describe your pixel-art scene",
+            placeholder="A tiny astronaut tending a garden on the moon",
+            key="image_prompt",
+        )
+        left, right = st.columns(2)
+        with left:
+            if st.button("Generate with OpenAI", type="primary", width="stretch"):
+                if not prompt.strip():
+                    st.error("Enter a description for your pixel art.")
+                elif demo_mode:
+                    _save_pixel_art(pixel_art.create_demo_pixel_art(prompt))
+                    st.success("Demo pixel art created.")
+                elif not api_keys["openai"]:
+                    st.error("Enter your OpenAI API key in the sidebar.")
+                else:
+                    with st.spinner("Creating pixel art with OpenAI…"):
+                        try:
+                            _save_pixel_art(
+                                openai_service.generate_pixel_art(
+                                    prompt.strip(),
+                                    api_keys["openai"],
+                                )
+                            )
+                            st.success("Pixel art created.")
+                        except Exception as exc:
+                            _show_error("Image generation failed", exc, api_keys)
+        with right:
+            uploaded_image = st.file_uploader(
+                "Or convert an image you own",
+                type=["png", "jpg", "jpeg", "webp"],
+                key="source_image_upload",
+            )
+            if st.button("Convert upload to pixel art", width="stretch"):
+                if uploaded_image is None:
+                    st.error("Choose an image to convert.")
+                else:
+                    try:
+                        _save_pixel_art(
+                            pixel_art.convert_to_pixel_art(uploaded_image.getvalue())
+                        )
+                        st.success("Uploaded image converted to pixel art.")
+                    except Exception as exc:
+                        st.error(f"Image conversion failed: {exc}")
+
+        if st.session_state.pixel_art_image:
+            st.subheader("Image preview")
+            st.image(st.session_state.pixel_art_image, width="stretch")
+            st.download_button(
+                "Download pixel art",
+                data=st.session_state.pixel_art_image,
+                file_name="pixel-art.png",
+                mime="image/png",
+            )
+
+    with animate_tab:
+        image_bytes = st.session_state.pixel_art_image
+        if image_bytes:
+            st.image(image_bytes, caption="Image to animate", width=320)
+            animation_provider = st.selectbox(
+                "Animation model",
+                [
+                    "Google Gemini Omni Flash",
+                    "Google Veo 3.1",
+                    "Viggle",
+                    "fal.ai (Wan)",
+                ],
+                key="animation_provider",
+                disabled=demo_mode,
+                help=(
+                    "Gemini Omni is the fast default. Veo supports image-to-video "
+                    "generation and may take several minutes."
+                ),
+            )
+            animation_prompt = st.text_input(
+                "Describe the motion",
+                value="A gentle idle animation; preserve the original pixel-art style.",
+                key="animation_prompt",
+            )
+            viggle_options: dict[str, str | int] = {}
+            if animation_provider == "Viggle":
+                st.caption(
+                    "Viggle returns video with native audio. Generation is billed by "
+                    "duration; check your Viggle balance before submitting."
+                )
+                viggle_quality = st.selectbox(
+                    "Viggle quality",
+                    ["low", "high"],
+                    help="Low is faster to iterate; both quality levels use the same rate per resolution.",
+                )
+                viggle_duration = st.slider(
+                    "Video duration (seconds)",
+                    min_value=3,
+                    max_value=15,
+                    value=5,
+                    help="Viggle generation is billed by duration.",
+                )
+                viggle_options = {
+                    "quality": viggle_quality,
+                    "duration_seconds": viggle_duration,
+                }
+            if st.button("Create animation", type="primary"):
+                if demo_mode:
+                    st.session_state.animation_bytes = pixel_art.create_demo_animation(image_bytes)
+                    st.session_state.animation_type = "gif"
+                elif not api_keys["google"] and animation_provider.startswith("Google"):
+                    st.error("Enter your Google Gemini API key in the sidebar.")
+                elif not api_keys["fal"] and animation_provider == "fal.ai (Wan)":
+                    st.error("Enter your fal.ai API key in the sidebar.")
+                elif not api_keys["viggle"] and animation_provider == "Viggle":
+                    st.error("Enter your Viggle API key in the sidebar.")
+                elif not animation_prompt.strip():
+                    st.error("Describe how the artwork should move.")
+                else:
+                    with st.spinner(
+                        f"Animating with {animation_provider}. This can take several minutes…"
+                    ):
+                        try:
+                            if animation_provider == "Google Gemini Omni Flash":
+                                video_bytes = google_video_service.animate_with_omni(
+                                    image_bytes,
+                                    animation_prompt.strip(),
+                                    api_keys["google"],
+                                )
+                            elif animation_provider == "Google Veo 3.1":
+                                video_bytes = google_video_service.animate_with_veo(
+                                    image_bytes,
+                                    animation_prompt.strip(),
+                                    api_keys["google"],
+                                )
+                            elif animation_provider == "Viggle":
+                                video_bytes = viggle_service.animate_image(
+                                    image_bytes,
+                                    animation_prompt.strip(),
+                                    api_keys["viggle"],
+                                    quality=str(viggle_options["quality"]),
+                                    duration_seconds=int(viggle_options["duration_seconds"]),
+                                )
+                            else:
+                                video_bytes = animation_service.animate_image(
+                                    image_bytes,
+                                    animation_prompt.strip(),
+                                    api_keys["fal"],
+                                )
+                            if st.session_state.music_bytes:
+                                video_bytes = media_service.add_background_music(
+                                    video_bytes,
+                                    st.session_state.music_bytes,
+                                    st.session_state.music_extension,
+                                )
+                            st.session_state.animation_bytes = video_bytes
+                            st.session_state.animation_type = "mp4"
+                        except Exception as exc:
+                            _show_error("Animation failed", exc, api_keys)
+        else:
+            st.info("Create or upload pixel art first, then come back to animate it.")
+
+        _render_animation_preview()
+
+    with soundtrack_tab:
+        st.write("Generate a short soundtrack with Hugging Face, or upload your own audio.")
+        music_prompt = st.text_input(
+            "Soundtrack description",
+            placeholder="Dreamy chiptune melody with soft synths",
+            key="music_prompt",
+        )
+        if st.button("Generate soundtrack"):
+            if not music_prompt.strip():
+                st.error("Describe the soundtrack you want.")
+            elif demo_mode:
+                st.info("Demo mode previews your workflow; music generation needs a Hugging Face token.")
+            elif not api_keys["huggingface"]:
+                st.error("Enter your Hugging Face token in the sidebar.")
+            else:
+                with st.spinner("Generating music with Hugging Face…"):
+                    try:
+                        (
+                            st.session_state.music_bytes,
+                            st.session_state.music_extension,
+                        ) = music_service.generate_music(
+                            music_prompt.strip(),
+                            api_keys["huggingface"],
+                        )
+                        st.success("Soundtrack generated.")
+                    except Exception as exc:
+                        _show_error("Music generation failed", exc, api_keys)
+
+        uploaded_music = st.file_uploader(
+            "Upload an audio track",
+            type=["mp3", "wav", "m4a", "ogg"],
+            key="music_upload",
+        )
+        if uploaded_music is not None:
+            extension = uploaded_music.name.rsplit(".", maxsplit=1)[-1].lower()
+            uploaded_bytes = uploaded_music.getvalue()
+            if (
+                st.session_state.get("uploaded_music_name") != uploaded_music.name
+                or st.session_state.get("uploaded_music_source") != uploaded_bytes
+            ):
+                st.session_state.music_bytes = uploaded_bytes
+                st.session_state.music_extension = extension
+                st.session_state.uploaded_music_name = uploaded_music.name
+                st.session_state.uploaded_music_source = uploaded_bytes
+        if st.session_state.music_bytes:
+            st.audio(st.session_state.music_bytes)
+            st.download_button(
+                "Download soundtrack",
+                data=st.session_state.music_bytes,
+                file_name=f"pixel-art-soundtrack.{st.session_state.music_extension}",
+                mime=_audio_mime(st.session_state.music_extension),
+            )
+            if (
+                st.session_state.animation_type == "mp4"
+                and st.session_state.animation_bytes
+                and st.button("Add soundtrack to current video")
+            ):
+                with st.spinner("Adding soundtrack to video…"):
+                    try:
+                        st.session_state.animation_bytes = media_service.add_background_music(
+                            st.session_state.animation_bytes,
+                            st.session_state.music_bytes,
+                            st.session_state.music_extension,
+                        )
+                        st.success("Soundtrack added to the video.")
+                    except Exception as exc:
+                        _show_error("Could not add soundtrack", exc, api_keys)
+            elif st.session_state.animation_type == "gif":
+                st.caption("The demo animation is a GIF. Add a soundtrack after creating an MP4 in live mode.")
+
+    with publish_tab:
+        _render_publish(demo_mode, api_keys, prompt)
+
+
+def _render_animation_preview() -> None:
+    animation = st.session_state.animation_bytes
+    if not animation:
+        return
+    if st.session_state.animation_type == "mp4":
+        st.video(animation)
+        file_name, mime_type = "pixel-art-animation.mp4", "video/mp4"
+    else:
+        st.image(animation, caption="Looping demo animation", width=420)
+        file_name, mime_type = "pixel-art-animation.gif", "image/gif"
+    st.download_button(
+        "Download animation",
+        data=animation,
+        file_name=file_name,
+        mime=mime_type,
+    )
+
+
+def _render_publish(demo_mode: bool, api_keys: dict[str, str], prompt: str) -> None:
+    if not st.session_state.pixel_art_image:
+        st.info("Create pixel art before writing a caption or preparing a post.")
         return
 
-    # display items in columns for a compact layout
-    cols = st.columns(min(3, max(1, len(items))))
-    for idx, item in enumerate(items):
-        with cols[idx % len(cols)]:
-            st.card = None
-            st.markdown(f"**{item.get('name')}**")
-            st.write(f"ID: {item.get('id')}")
-            st.write(f"Value: {item.get('value')}")
+    st.subheader("Caption")
+    if st.button("Generate caption and hashtags"):
+        if demo_mode:
+            description = prompt.strip() or "A new pixel-art creation"
+            st.session_state.caption_text = (
+                f"{description.capitalize()} — one little pixel at a time. "
+                "#PixelArt #IndieArt #RetroGaming"
+            )
+        elif not api_keys["openai"]:
+            st.error("Enter your OpenAI API key in the sidebar.")
+        else:
+            with st.spinner("Writing a caption with OpenAI…"):
+                try:
+                    st.session_state.caption_text = openai_service.generate_caption(
+                        prompt.strip() or "A pixel-art creation",
+                        api_keys["openai"],
+                    )
+                except Exception as exc:
+                    _show_error("Caption generation failed", exc, api_keys)
+
+    caption = st.text_area("Post text", key="caption_text", height=120)
+    if st.session_state.animation_bytes:
+        media_kind = "video" if st.session_state.animation_type == "mp4" else "image"
+        st.caption(f"Your {media_kind} is ready to preview and download above.")
+    else:
+        media_kind = "image"
+
+    st.subheader("Publish with Buffer")
+    if demo_mode:
+        st.info("Demo publishing is simulated. No post will be sent to Buffer.")
+        if st.button("Simulate adding post to Buffer", type="primary"):
+            if not caption.strip():
+                st.error("Write or generate a caption first.")
+            else:
+                st.success("Demo post queued successfully. Nothing was published.")
+        return
+
+    buffer_key = api_keys["buffer"]
+    if not buffer_key:
+        st.warning("Enter your Buffer API key in the sidebar to connect your accounts.")
+        return
+    if st.button("Load Buffer organizations"):
+        with st.spinner("Loading Buffer organizations…"):
+            try:
+                st.session_state.buffer_organizations = buffer_client.get_organizations(buffer_key)
+                st.session_state.buffer_channels = []
+            except Exception as exc:
+                _show_error("Could not load Buffer organizations", exc, api_keys)
+
+    organizations = st.session_state.buffer_organizations
+    if not organizations:
+        return
+    organization_by_label = {
+        f"{item['name']} ({item['id']})": item["id"] for item in organizations
+    }
+    organization_label = st.selectbox("Buffer organization", list(organization_by_label))
+    if st.button("Load channels for organization"):
+        with st.spinner("Loading social accounts…"):
+            try:
+                st.session_state.buffer_channels = buffer_client.get_channels(
+                    organization_by_label[organization_label],
+                    buffer_key,
+                )
+            except Exception as exc:
+                _show_error("Could not load Buffer channels", exc, api_keys)
+
+    channels = st.session_state.buffer_channels
+    if not channels:
+        return
+    channel_by_label = {
+        f"{channel['name']} · {channel['service']}": channel["id"]
+        for channel in channels
+    }
+    channel_label = st.selectbox("Social account", list(channel_by_label))
+    schedule_mode = st.radio(
+        "When should Buffer publish?",
+        ["Add to next queue slot", "Schedule for a specific time"],
+    )
+
+    due_at = None
+    if schedule_mode == "Schedule for a specific time":
+        default_datetime = datetime.now(timezone.utc) + timedelta(hours=1)
+        post_date = st.date_input("Date (UTC)", value=default_datetime.date())
+        post_time = st.time_input(
+            "Time (UTC)",
+            value=default_datetime.time().replace(second=0, microsecond=0),
+        )
+        due_at = datetime.combine(post_date, post_time, tzinfo=timezone.utc)
+        if due_at <= datetime.now(timezone.utc):
+            st.warning("Choose a future date and time.")
+
+    generated_media = st.session_state.animation_bytes or st.session_state.pixel_art_image
+    generated_resource_type = "video" if st.session_state.animation_type == "mp4" else "image"
+    generated_filename = (
+        "pixel-art-animation.mp4"
+        if generated_resource_type == "video"
+        else "pixel-art.png"
+    )
+    generated_mime_type = "video/mp4" if generated_resource_type == "video" else "image/png"
+    generated_label = (
+        "Generated animation video (upload to Cloudinary)"
+        if generated_resource_type == "video"
+        else "Generated pixel art (upload to Cloudinary)"
+    )
+    media_source = st.radio(
+        "Post media",
+        [generated_label, "Use a public media URL", "Text only"],
+        index=0,
+        horizontal=True,
+        key="buffer_media_source",
+    )
+    media_url = ""
+    social_page_url = False
+    if media_source == "Use a public media URL":
+        media_url = st.text_input(
+            "Direct public image/video file URL",
+            help=(
+                "Use a direct HTTPS URL to an image or MP4 file hosted on public storage. "
+                "A social profile, post, or share-page URL is not a media file."
+            ),
+        )
+        social_page_url = bool(media_url.strip()) and buffer_client.is_social_media_page_url(
+            media_url.strip()
+        )
+        if social_page_url:
+            st.warning(
+                "This looks like a social-media profile or post page, not a direct video file. "
+                "Use a public URL that serves the actual .mp4/.png/.jpg file."
+            )
+    elif media_source == generated_label:
+        st.info(f"Detected {generated_resource_type}: {generated_filename}")
+        cloudinary_configured = all(
+            api_keys.get(name)
+            for name in (
+                "cloudinary_cloud_name",
+                "cloudinary_api_key",
+                "cloudinary_api_secret",
+            )
+        )
+        if not cloudinary_configured:
+            st.warning(
+                "Buffer cannot receive local app files directly. Enter your Cloudinary "
+                "cloud name, API key, and API secret in the sidebar; this app will upload "
+                "the detected media and attach its public URL automatically."
+            )
+    if "tiktok" in channel_label.lower() and media_source == "Text only":
+        st.warning("TikTok requires an image or video. Choose generated media or provide a public media URL.")
+    post_button_label = (
+        "Add post to queue"
+        if schedule_mode == "Add to next queue slot"
+        else "Schedule post"
+    )
+    if st.button(post_button_label, type="primary"):
+        if not caption.strip():
+            st.error("Write or generate a caption first.")
+        elif schedule_mode != "Add to next queue slot" and (
+            due_at is None or due_at <= datetime.now(timezone.utc)
+        ):
+            st.error("Choose a future date and time.")
+        elif media_url and not media_url.lower().startswith("https://"):
+            st.error("Enter a public HTTPS media URL.")
+        elif social_page_url:
+            st.error(
+                "Buffer cannot read media from a social profile/share page. "
+                "Paste a direct public media-file URL instead."
+            )
+        elif "tiktok" in channel_label.lower() and media_source == "Text only":
+            st.error(
+                "TikTok posts require an image or video. Choose the generated media "
+                "option or provide a public media-file URL."
+            )
+        elif media_source == generated_label and not all(
+            api_keys.get(name)
+            for name in (
+                "cloudinary_cloud_name",
+                "cloudinary_api_key",
+                "cloudinary_api_secret",
+            )
+        ):
+            st.error(
+                "Enter your Cloudinary cloud name, API key, and API secret in the sidebar "
+                "to upload and attach the generated media."
+            )
+        else:
+            due_at_text = (
+                due_at.isoformat(timespec="seconds").replace("+00:00", "Z")
+                if due_at
+                else None
+            )
+            with st.spinner("Sending post to Buffer…"):
+                try:
+                    if media_source == generated_label:
+                        media_url = cloudinary_service.upload_media(
+                            generated_media,
+                            cloud_name=api_keys["cloudinary_cloud_name"],
+                            api_key=api_keys["cloudinary_api_key"],
+                            api_secret=api_keys["cloudinary_api_secret"],
+                            resource_type=generated_resource_type,
+                            filename=generated_filename,
+                            mime_type=generated_mime_type,
+                        )
+                    elif media_source == "Text only":
+                        media_url = ""
+                    post = buffer_client.create_post(
+                        channel_id=channel_by_label[channel_label],
+                        text=caption.strip(),
+                        api_key=buffer_key,
+                        mode=(
+                            "addToQueue"
+                            if schedule_mode == "Add to next queue slot"
+                            else "customScheduled"
+                        ),
+                        due_at=due_at_text,
+                        media_url=media_url.strip() or None,
+                        media_kind=(
+                            generated_resource_type
+                            if media_source == generated_label
+                            else media_kind if media_url.strip() else None
+                        ),
+                    )
+                    st.success(
+                        f"Post queued successfully (Buffer post ID: {post['id']})."
+                    )
+                except Exception as exc:
+                    _show_error("Could not send post to Buffer", exc, api_keys)
+
+
+def _audio_mime(extension: str) -> str:
+    return {
+        "mp3": "audio/mpeg",
+        "wav": "audio/wav",
+        "m4a": "audio/mp4",
+        "ogg": "audio/ogg",
+    }.get(extension, "application/octet-stream")
+
+
+def _save_pixel_art(image_bytes: bytes) -> None:
+    st.session_state.pixel_art_image = image_bytes
+    st.session_state.animation_bytes = None
+    st.session_state.animation_type = None
+
+
+def _show_error(message: str, error: Exception, api_keys: dict[str, str]) -> None:
+    details = str(error)
+    for api_key in api_keys.values():
+        if api_key:
+            details = details.replace(api_key, "[redacted]")
+    st.error(f"{message}: {details}")
+    if isinstance(error, viggle_service.ViggleAPIError):
+        if error.status_code == 401 or error.code in {
+            "UNAUTHENTICATED",
+            "INVALID_CREDENTIAL",
+        }:
+            st.info(
+                "Viggle rejected this credential. Create a Viggle V1 project API key in "
+                "the Viggle developer dashboard, then replace the value in the sidebar. "
+                "A Viggle website, Discord, or other product login token is not an API key."
+            )
+            st.markdown(
+                "[Create or manage Viggle API keys](https://portal.viggle.ai/keys) · "
+                "[Viggle API authentication guide](https://docs.viggle.ai/v1/authentication)"
+            )
+        elif error.status_code == 402 or error.code == "INSUFFICIENT_CREDITS":
+            st.info("The Viggle API key was accepted, but its account needs more API credits.")
+            st.markdown("[View Viggle dashboard and credits](https://portal.viggle.ai/dashboard)")
+    if isinstance(error, google_video_service.GoogleVideoAPIError) and error.status_code == 429:
+        st.info(
+            "Google rejected this request because the selected model or project has hit a "
+            "rate limit or quota. Repeated retries usually will not help until the limit "
+            "resets or the project's quota changes. Check the Google AI Studio project "
+            "associated with this key and its model access, usage, rate limits, and billing."
+        )
+        st.markdown(
+            "[View Gemini API rate limits](https://ai.google.dev/gemini-api/docs/rate-limits) · "
+            "[View AI Studio usage](https://aistudio.google.com/usage) · "
+            "[Manage AI Studio API keys/projects](https://aistudio.google.com/api-keys)"
+        )
