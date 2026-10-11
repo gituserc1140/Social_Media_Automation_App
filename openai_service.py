@@ -1,4 +1,4 @@
-"""OpenAI image and caption helpers."""
+"""OpenAI image-generation helpers."""
 
 import base64
 

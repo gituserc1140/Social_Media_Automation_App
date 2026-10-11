@@ -11,12 +11,14 @@ def test_live_mode_is_default_and_shows_provider_key_inputs():
     labels = {field.label for field in app.text_input}
     assert {
         "OpenAI API key",
-        "Google Gemini API key",
-        "fal.ai API key",
+        "Cohere API key",
         "Viggle API key",
-        "Cloudinary cloud name",
-        "Cloudinary API key",
-        "Cloudinary API secret",
         "Hugging Face token",
         "Buffer API key",
     }.issubset(labels)
+    assert "Google Gemini API key" not in labels
+    assert "fal.ai API key" not in labels
+    assert "Cloudinary cloud name" not in labels
+    assert "Cloudinary API key" not in labels
+    assert "Cloudinary API secret" not in labels
+    assert "Animation model" not in {select.label for select in app.selectbox}

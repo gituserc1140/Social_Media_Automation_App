@@ -1,6 +1,5 @@
 streamlit>=1.49
 requests>=2.32
 Pillow>=10.0
-fal-client>=0.7
 imageio-ffmpeg>=0.5
 pytest>=8.0
