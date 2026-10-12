@@ -7,7 +7,6 @@ import streamlit as st
 import buffer_client
 import cohere_service
 import media_service
-import music_service
 import openai_service
 import pixel_art
 import viggle_service
@@ -17,81 +16,58 @@ def render_app() -> None:
     st.title("Pixel Post Studio")
     st.caption("Make pixel art, bring it to life, and prepare it for Buffer.")
 
-    demo_mode = st.sidebar.toggle(
-        "Demo mode",
-        value=False,
-        key="demo_mode_toggle",
-        help="Explore the complete creative workflow with no API keys or external calls.",
-    )
     st.sidebar.caption(
         "Live mode is on. API keys stay in this session and are not saved to disk."
     )
-    if demo_mode:
-        st.sidebar.success("Demo mode — no API keys required")
-        api_keys = {}
-    else:
-        st.sidebar.subheader("API keys")
-        st.sidebar.caption(
-            "Add only the providers you want to use. Image generation, animation, "
-            "music generation, and publishing may incur charges."
-        )
-        st.sidebar.markdown(
-            "[OpenAI](https://platform.openai.com/api-keys) · "
-            "[Cohere](https://dashboard.cohere.com/api-keys) · "
-            "[Viggle](https://portal.viggle.ai/keys) · "
-            "[Hugging Face](https://huggingface.co/settings/tokens) · "
-            "[Buffer](https://publish.buffer.com/settings/api)"
-        )
-        api_keys = {
-            "openai": st.sidebar.text_input(
-                "OpenAI API key",
-                type="password",
-                key="openai_api_key",
-                help="Used for pixel-art image generation.",
-            ),
-            "cohere": st.sidebar.text_input(
-                "Cohere API key",
-                type="password",
-                key="cohere_api_key",
-                help="Used to generate social media captions.",
-            ),
-            "viggle": st.sidebar.text_input(
-                "Viggle API key",
-                type="password",
-                key="viggle_api_key",
-                help="Used for image-referenced Viggle video generation.",
-            ),
-            "huggingface": st.sidebar.text_input(
-                "Hugging Face token",
-                type="password",
-                key="huggingface_api_key",
-                help="Music generation may require model access on Hugging Face.",
-            ),
-            "buffer": st.sidebar.text_input(
-                "Buffer API key",
-                type="password",
-                key="buffer_api_key",
-                help="Used to read connected accounts and queue or schedule posts.",
-            ),
-        }
-        if api_keys["openai"] and st.sidebar.button("Test OpenAI key"):
-            try:
-                openai_service.validate_api_key(api_keys["openai"])
-                st.sidebar.success("OpenAI key is valid.")
-            except Exception as exc:
-                _show_error("OpenAI key check failed", exc, api_keys)
-        if api_keys["huggingface"] and st.sidebar.button("Test Hugging Face token"):
-            try:
-                music_service.validate_api_key(api_keys["huggingface"])
-                st.sidebar.success("Hugging Face token is valid.")
-            except Exception as exc:
-                _show_error("Hugging Face token check failed", exc, api_keys)
-        if api_keys["viggle"] and st.sidebar.button("Check Viggle credits"):
-            try:
-                balance = viggle_service.get_credit_balance(api_keys["viggle"])
-                st.sidebar.success(f"Viggle key is valid. Credit balance: {balance:g}")
-            except Exception as exc:
-                _show_error("Viggle key check failed", exc, api_keys)
+    st.sidebar.subheader("API keys")
+    st.sidebar.caption(
+        "Add only the providers you want to use. Image generation, animation, "
+        "and publishing may incur charges."
+    )
+    st.sidebar.markdown(
+        "[OpenAI](https://platform.openai.com/api-keys) · "
+        "[Cohere](https://dashboard.cohere.com/api-keys) · "
+        "[Viggle](https://portal.viggle.ai/keys) · "
+        "[Buffer](https://publish.buffer.com/settings/api)"
+    )
+    api_keys = {
+        "openai": st.sidebar.text_input(
+            "OpenAI API key",
+            type="password",
+            key="openai_api_key",
+            help="Used for pixel-art image generation.",
+        ),
+        "cohere": st.sidebar.text_input(
+            "Cohere API key",
+            type="password",
+            key="cohere_api_key",
+            help="Used to generate social media captions.",
+        ),
+        "viggle": st.sidebar.text_input(
+            "Viggle API key",
+            type="password",
+            key="viggle_api_key",
+            help="Used for image-referenced Viggle video generation.",
+        ),
+        "buffer": st.sidebar.text_input(
+            "Buffer API key",
+            type="password",
+            key="buffer_api_key",
+            help="Used to read connected accounts and queue or schedule posts.",
+        ),
+    }
+    if api_keys["openai"] and st.sidebar.button("Test OpenAI key"):
+        try:
+            openai_service.validate_api_key(api_keys["openai"])
+            st.sidebar.success("OpenAI key is valid.")
+        except Exception as exc:
+            _show_error("OpenAI key check failed", exc, api_keys)
+    if api_keys["viggle"] and st.sidebar.button("Check Viggle credits"):
+        try:
+            balance = viggle_service.get_credit_balance(api_keys["viggle"])
+            st.sidebar.success(f"Viggle key is valid. Credit balance: {balance:g}")
+        except Exception as exc:
+            _show_error("Viggle key check failed", exc, api_keys)
     st.session_state.setdefault("pixel_art_image", None)
     st.session_state.setdefault("animation_bytes", None)
     st.session_state.setdefault("animation_type", None)
@@ -122,9 +98,6 @@ def render_app() -> None:
             if st.button("Generate with OpenAI", type="primary", width="stretch"):
                 if not prompt.strip():
                     st.error("Enter a description for your pixel art.")
-                elif demo_mode:
-                    _save_pixel_art(pixel_art.create_demo_pixel_art(prompt))
-                    st.success("Demo pixel art created.")
                 elif not api_keys["openai"]:
                     st.error("Enter your OpenAI API key in the sidebar.")
                 else:
@@ -211,10 +184,7 @@ def render_app() -> None:
                 help="Viggle generation is billed by duration.",
             )
             if st.button("Create animation", type="primary"):
-                if demo_mode:
-                    st.session_state.animation_bytes = pixel_art.create_demo_animation(image_bytes)
-                    st.session_state.animation_type = "gif"
-                elif not api_keys["viggle"]:
+                if not api_keys["viggle"]:
                     st.error("Enter your Viggle API key in the sidebar.")
                 elif not animation_prompt.strip():
                     st.error("Describe how the artwork should move.")
@@ -282,33 +252,7 @@ def render_app() -> None:
 
     with soundtrack_tab:
         st.caption("Optional: skip the soundtrack and continue to Caption & publish.")
-        st.write("Generate a short soundtrack with Hugging Face, or upload your own audio.")
-        music_prompt = st.text_input(
-            "Soundtrack description",
-            placeholder="Dreamy chiptune melody with soft synths",
-            key="music_prompt",
-        )
-        if st.button("Generate soundtrack"):
-            if not music_prompt.strip():
-                st.error("Describe the soundtrack you want.")
-            elif demo_mode:
-                st.info("Demo mode previews your workflow; music generation needs a Hugging Face token.")
-            elif not api_keys["huggingface"]:
-                st.error("Enter your Hugging Face token in the sidebar.")
-            else:
-                with st.spinner("Generating music with Hugging Face…"):
-                    try:
-                        (
-                            st.session_state.music_bytes,
-                            st.session_state.music_extension,
-                        ) = music_service.generate_music(
-                            music_prompt.strip(),
-                            api_keys["huggingface"],
-                        )
-                        st.success("Soundtrack generated.")
-                    except Exception as exc:
-                        _show_error("Music generation failed", exc, api_keys)
-
+        st.write("Upload an audio track to preview it or add it to your video.")
         uploaded_music = st.file_uploader(
             "Upload an audio track",
             type=["mp3", "wav", "m4a", "ogg"],
@@ -363,7 +307,7 @@ def render_app() -> None:
                 st.caption("The demo animation is a GIF. Add a soundtrack after creating an MP4 in live mode.")
 
     with publish_tab:
-        _render_publish(demo_mode, api_keys, prompt)
+        _render_publish(api_keys, prompt)
 
 
 def _render_animation_preview() -> None:
@@ -401,20 +345,14 @@ def _render_animation_preview() -> None:
     )
 
 
-def _render_publish(demo_mode: bool, api_keys: dict[str, str], prompt: str) -> None:
+def _render_publish(api_keys: dict[str, str], prompt: str) -> None:
     if not st.session_state.pixel_art_image and not st.session_state.animation_bytes:
         st.info("Create pixel art or upload an animation before preparing a post.")
         return
 
     st.subheader("Caption")
     if st.button("Generate caption and hashtags"):
-        if demo_mode:
-            description = prompt.strip() or "A new pixel-art creation"
-            st.session_state.caption_text = (
-                f"{description.capitalize()} — one little pixel at a time. "
-                "#PixelArt #IndieArt #RetroGaming"
-            )
-        elif not api_keys["cohere"]:
+        if not api_keys["cohere"]:
             st.error("Enter your Cohere API key in the sidebar.")
         else:
             with st.spinner("Writing a caption with Cohere…"):
@@ -434,15 +372,6 @@ def _render_publish(demo_mode: bool, api_keys: dict[str, str], prompt: str) -> N
         media_kind = "image"
 
     st.subheader("Publish with Buffer")
-    if demo_mode:
-        st.info("Demo publishing is simulated. No post will be sent to Buffer.")
-        if st.button("Simulate adding post to Buffer", type="primary"):
-            if not caption.strip():
-                st.error("Write or generate a caption first.")
-            else:
-                st.success("Demo post queued successfully. Nothing was published.")
-        return
-
     buffer_key = api_keys["buffer"]
     if not buffer_key:
         st.warning("Enter your Buffer API key in the sidebar to connect your accounts.")

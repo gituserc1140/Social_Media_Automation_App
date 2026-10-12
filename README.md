@@ -35,18 +35,15 @@ The app opens in **Live mode**. Enter provider keys in the sidebar as needed:
   Choose low/high quality and a 3–15 second duration in the Animate tab; Viggle
   generation is billed by duration and returns video with native audio. Use a
   Viggle V1 project API key (not a regular Viggle or Discord login token).
-- **Hugging Face** — soundtrack generation (`facebook/musicgen-small`). Use
-  **Test Hugging Face token** for a non-billable credentials check.
 - **Buffer** — click **Load Buffer organizations** to verify access and select
   a connected account. Add a post to the next queue slot or schedule it for a
   specific UTC time.
 
 Provider keys may be entered independently; for example, OpenAI is only needed
 for image generation, Cohere is only needed for live caption generation, and
-Buffer is not needed to create or download art. Generation and publishing calls
-may incur provider charges. To explore
-without live API calls, turn on **Demo mode** in the sidebar; demo publishing
-is simulated and never sends a post.
+Buffer is not needed to create or download art. Upload your own audio track in
+the optional soundtrack tab. Generation and publishing calls may incur provider
+charges.
 
 Keys are password inputs held in the active Streamlit session only. The app does
 not write them to files, environment variables, or Streamlit secrets. As with
@@ -77,7 +74,6 @@ access, model availability, and rate limits.
 - `openai_service.py` — OpenAI image generation.
 - `cohere_service.py` — Cohere caption and hashtag generation.
 - `viggle_service.py` — Viggle image-to-video generation and credit checks.
-- `music_service.py` — Hugging Face soundtrack generation.
 - `media_service.py` — local audio/video muxing.
 - `buffer_client.py` — Buffer organization, channel, and post operations.
 
