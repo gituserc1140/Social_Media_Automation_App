@@ -5,6 +5,30 @@ from PIL import Image
 from streamlit.testing.v1 import AppTest
 
 import cohere_service
+import openai_service
+
+
+def test_live_image_generation_uses_server_openai_key(monkeypatch):
+    calls = {}
+    image = BytesIO()
+    Image.new("RGB", (8, 8), (40, 80, 120)).save(image, format="PNG")
+
+    def fake_generate_pixel_art(prompt, api_key):
+        calls.update(prompt=prompt, api_key=api_key)
+        return image.getvalue()
+
+    monkeypatch.setattr(openai_service, "generate_pixel_art", fake_generate_pixel_art)
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-server-key")
+    app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py")
+    app.session_state["image_prompt"] = "a small robot"
+    app.run()
+
+    next(button for button in app.button if button.label == "Generate with OpenAI").click()
+    app.run()
+
+    assert not app.exception
+    assert calls == {"prompt": "a small robot", "api_key": "openai-server-key"}
+    assert app.session_state["pixel_art_image"] == image.getvalue()
 
 
 def test_live_caption_generation_uses_cohere(monkeypatch):
@@ -18,8 +42,8 @@ def test_live_caption_generation_uses_cohere(monkeypatch):
     Image.new("RGB", (8, 8), (40, 80, 120)).save(image, format="PNG")
 
     monkeypatch.setattr(cohere_service, "generate_caption", fake_generate_caption)
+    monkeypatch.setenv("COHERE_API_KEY", "cohere-session-key")
     app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py")
-    app.session_state["cohere_api_key"] = "cohere-session-key"
     app.session_state["pixel_art_image"] = image.getvalue()
     app.run()
 

@@ -1,5 +1,6 @@
 """Streamlit screens and session-only workflow state."""
 
+import os
 from datetime import datetime, time, timedelta, timezone
 
 import streamlit as st
@@ -17,12 +18,12 @@ def render_app() -> None:
     st.caption("Make pixel art, bring it to life, and prepare it for Buffer.")
 
     st.sidebar.caption(
-        "Live mode is on. API keys stay in this session and are not saved to disk."
+        "OpenAI, Cohere, and Buffer keys are read from the server .env file. "
+        "The Viggle key stays in this session."
     )
     st.sidebar.subheader("API keys")
     st.sidebar.caption(
-        "Add only the providers you want to use. Image generation, animation, "
-        "and publishing may incur charges."
+        "Image generation, animation, and publishing may incur charges."
     )
     st.sidebar.markdown(
         "[OpenAI](https://platform.openai.com/api-keys) · "
@@ -31,43 +32,54 @@ def render_app() -> None:
         "[Buffer](https://publish.buffer.com/settings/api)"
     )
     api_keys = {
-        "openai": st.sidebar.text_input(
-            "OpenAI API key",
-            type="password",
-            key="openai_api_key",
-            help="Used for pixel-art image generation.",
-        ),
-        "cohere": st.sidebar.text_input(
-            "Cohere API key",
-            type="password",
-            key="cohere_api_key",
-            help="Used to generate social media captions.",
-        ),
+        "openai": os.getenv("OPENAI_API_KEY", "").strip(),
+        "cohere": os.getenv("COHERE_API_KEY", "").strip(),
         "viggle": st.sidebar.text_input(
             "Viggle API key",
             type="password",
             key="viggle_api_key",
             help="Used for image-referenced Viggle video generation.",
         ),
-        "buffer": st.sidebar.text_input(
-            "Buffer API key",
-            type="password",
-            key="buffer_api_key",
-            help="Used to read connected accounts and queue or schedule posts.",
-        ),
+        "buffer": os.getenv("BUFFER_API_KEY", "").strip(),
     }
-    if api_keys["openai"] and st.sidebar.button("Test OpenAI key"):
-        try:
-            openai_service.validate_api_key(api_keys["openai"])
-            st.sidebar.success("OpenAI key is valid.")
-        except Exception as exc:
-            _show_error("OpenAI key check failed", exc, api_keys)
-    if api_keys["viggle"] and st.sidebar.button("Check Viggle credits"):
-        try:
-            balance = viggle_service.get_credit_balance(api_keys["viggle"])
-            st.sidebar.success(f"Viggle key is valid. Credit balance: {balance:g}")
-        except Exception as exc:
-            _show_error("Viggle key check failed", exc, api_keys)
+    if st.sidebar.button("Test OpenAI key"):
+        if not api_keys["openai"]:
+            st.sidebar.warning("Set OPENAI_API_KEY in the server .env file.")
+        else:
+            try:
+                openai_service.validate_api_key(api_keys["openai"])
+                st.sidebar.success("OpenAI key is valid.")
+            except Exception as exc:
+                _show_error("OpenAI key check failed", exc, api_keys)
+    if st.sidebar.button("Test Cohere key"):
+        if not api_keys["cohere"]:
+            st.sidebar.warning("Set COHERE_API_KEY in the server .env file.")
+        else:
+            try:
+                cohere_service.validate_api_key(api_keys["cohere"])
+                st.sidebar.success("Cohere key is valid.")
+            except Exception as exc:
+                _show_error("Cohere key check failed", exc, api_keys)
+    if st.sidebar.button("Test Viggle key"):
+        if not api_keys["viggle"]:
+            st.sidebar.warning("Enter your Viggle API key above.")
+        else:
+            try:
+                balance = viggle_service.get_credit_balance(api_keys["viggle"])
+                st.sidebar.success(f"Viggle key is valid. Credit balance: {balance:g}")
+            except Exception as exc:
+                _show_error("Viggle key check failed", exc, api_keys)
+    if st.sidebar.button("Test Buffer key"):
+        if not api_keys["buffer"]:
+            st.sidebar.warning("Set BUFFER_API_KEY in the server .env file.")
+        else:
+            try:
+                organizations = buffer_client.get_organizations(api_keys["buffer"])
+                st.sidebar.success(
+                    f"Buffer key is valid. Found {len(organizations)} organization(s)."
+                )
+            except Exception as exc:
+                _show_error("Buffer key check failed", exc, api_keys)
     st.session_state.setdefault("pixel_art_image", None)
     st.session_state.setdefault("animation_bytes", None)
     st.session_state.setdefault("animation_type", None)
@@ -99,7 +111,7 @@ def render_app() -> None:
                 if not prompt.strip():
                     st.error("Enter a description for your pixel art.")
                 elif not api_keys["openai"]:
-                    st.error("Enter your OpenAI API key in the sidebar.")
+                    st.error("Set OPENAI_API_KEY in the server .env file.")
                 else:
                     with st.spinner("Creating pixel art with OpenAI…"):
                         try:
@@ -353,7 +365,7 @@ def _render_publish(api_keys: dict[str, str], prompt: str) -> None:
     st.subheader("Caption")
     if st.button("Generate caption and hashtags"):
         if not api_keys["cohere"]:
-            st.error("Enter your Cohere API key in the sidebar.")
+            st.error("Set COHERE_API_KEY in the server .env file.")
         else:
             with st.spinner("Writing a caption with Cohere…"):
                 try:
@@ -374,7 +386,7 @@ def _render_publish(api_keys: dict[str, str], prompt: str) -> None:
     st.subheader("Publish with Buffer")
     buffer_key = api_keys["buffer"]
     if not buffer_key:
-        st.warning("Enter your Buffer API key in the sidebar to connect your accounts.")
+        st.warning("Set BUFFER_API_KEY in the server .env file to connect your accounts.")
         return
     if st.button("Load Buffer organizations"):
         with st.spinner("Loading Buffer organizations…"):

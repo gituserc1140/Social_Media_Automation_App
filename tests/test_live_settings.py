@@ -3,18 +3,18 @@ from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
 
-def test_app_shows_provider_key_inputs_without_demo_mode():
+def test_app_keeps_only_viggle_key_input_without_demo_mode(monkeypatch):
+    for key in ("OPENAI_API_KEY", "COHERE_API_KEY", "BUFFER_API_KEY"):
+        monkeypatch.setenv(key, "")
     app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
 
     assert not app.exception
     assert not any(toggle.label == "Demo mode" for toggle in app.toggle)
     labels = {field.label for field in app.text_input}
-    assert {
-        "OpenAI API key",
-        "Cohere API key",
-        "Viggle API key",
-        "Buffer API key",
-    }.issubset(labels)
+    assert "Viggle API key" in labels
+    assert "OpenAI API key" not in labels
+    assert "Cohere API key" not in labels
+    assert "Buffer API key" not in labels
     assert "Hugging Face token" not in labels
     assert "Google Gemini API key" not in labels
     assert "fal.ai API key" not in labels
@@ -24,9 +24,33 @@ def test_app_shows_provider_key_inputs_without_demo_mode():
     assert "Animation model" not in {select.label for select in app.selectbox}
     assert not any(button.label == "Generate soundtrack" for button in app.button)
     assert not any("Simulate" in button.label for button in app.button)
+    assert {
+        "Test OpenAI key",
+        "Test Cohere key",
+        "Test Viggle key",
+        "Test Buffer key",
+    }.issubset({button.label for button in app.button})
 
 
-def test_image_generation_requires_openai_key():
+def test_app_shows_provider_test_buttons_when_keys_are_configured(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
+    monkeypatch.setenv("COHERE_API_KEY", "cohere-test-key")
+    monkeypatch.setenv("BUFFER_API_KEY", "buffer-test-key")
+    app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py")
+    app.session_state["viggle_api_key"] = "viggle-test-key"
+    app.run()
+
+    labels = {button.label for button in app.button}
+    assert {
+        "Test OpenAI key",
+        "Test Cohere key",
+        "Test Viggle key",
+        "Test Buffer key",
+    }.issubset(labels)
+
+
+def test_image_generation_requires_server_openai_key(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "")
     app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py").run()
 
     next(
@@ -39,7 +63,7 @@ def test_image_generation_requires_openai_key():
 
     assert not app.exception
     assert app.session_state["pixel_art_image"] is None
-    assert any("Enter your OpenAI API key" in item.value for item in app.error)
+    assert any("Set OPENAI_API_KEY in the server .env file" in item.value for item in app.error)
 
 
 def test_uploaded_audio_track_remains_available():

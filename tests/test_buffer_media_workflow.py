@@ -21,8 +21,8 @@ def test_uploaded_animation_can_be_converted_and_published_without_pixel_art(mon
     monkeypatch.setattr(media_service, "convert_to_tiktok_format", fake_convert)
     monkeypatch.setattr(buffer_client, "create_post", fake_create_post)
 
+    monkeypatch.setenv("BUFFER_API_KEY", "buffer-key")
     app = AppTest.from_file(Path(__file__).resolve().parents[1] / "app.py")
-    app.session_state["buffer_api_key"] = "buffer-key"
     app.session_state["buffer_organizations"] = [{"id": "org-1", "name": "Studio"}]
     app.session_state["buffer_channels"] = [
         {"id": "channel-1", "name": "studio", "service": "instagram"}

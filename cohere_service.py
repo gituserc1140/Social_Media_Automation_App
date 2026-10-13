@@ -4,6 +4,17 @@ import requests
 
 
 COHERE_API_URL = "https://api.cohere.com/v2/chat"
+COHERE_MODELS_URL = "https://api.cohere.com/v1/models"
+
+
+def validate_api_key(api_key: str) -> None:
+    """Check that Cohere accepts the key without generating a completion."""
+    response = requests.get(
+        COHERE_MODELS_URL,
+        headers={"Authorization": f"******"},
+        timeout=30,
+    )
+    response.raise_for_status()
 
 
 def generate_caption(prompt: str, api_key: str) -> str:
